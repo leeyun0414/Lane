@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>lanetracking_2_10</name>
+  <name>laneitri</name>
   <version>0.0.0</version>
   <description>The lanedetect package</description>
 
@@ -58,7 +58,9 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>rospy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
-
+  <build_depend>message_generation</build_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <depend>pinhole_projection</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

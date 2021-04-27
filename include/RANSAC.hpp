@@ -47,19 +47,27 @@
 
 vision::lane_model::Parabola RANSAC_Parabola(
     int iterations, int init_samples, int n, double error_threshold,
-    std::vector<cv::Point2f> inputData) {
+    std::vector<cv::Point2f> inputData, int degree) {
   auto best_fit = vision::lane_model::Parabola();
   double best_error = std::numeric_limits<double>::max();
   int consensus_set;
 
   for (int i = 0; i < iterations; ++i) {
     random_unique(inputData.begin(), inputData.end(), init_samples);
-    auto model = vision::lane_model::fit(inputData, init_samples);
+    auto model = vision::lane_model::fit(inputData, init_samples, degree);
     auto straight_model = model;
-    straight_model.a = 0;
-
+    double model_error;
+    if (degree == 4) {
+      straight_model.a = 0;
+      straight_model.b = 0;
+      model_error = model.a * model.a * model.a * model.b * model.b * 5000;
+    }
+    else {
+      straight_model.a = 0;
+      model_error = model.a * model.a * 5000;
+    }
     consensus_set = 0;
-    auto model_error = model.a * model.a * 5000;  // bias towards straight lines *10000
+    //auto model_error = model.a * model.a * 5000;  // bias towards straight lines *10000
     auto straight_model_error = 0;
     for (auto p : inputData) {
       const auto err = std::abs(model(p.y) - p.x);

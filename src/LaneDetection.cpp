@@ -1,6 +1,6 @@
 //#pragma warning(disable: 4819)
 #include "LaneDetection.h"
-#include "Tracking.h"
+//#include "Tracking.h"
 #include "Hungarian.h"
 #include <math.h>
 #include <stdlib.h>
@@ -21,273 +21,27 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <iostream>
 #include <stdio.h>
-// Lane marking definition
-const int MAX_LANE_MARKING = 2000;
-const int MAX_LW_N = 55;
-const int MAX_LW_F = 10;
-const int MAX_LW_D = 8;
-const int MIN_LW_N = 10;
-const int MIN_LW_F = 3;
-const int gvalue = 80;
 
-// Lane Marking Grouping
-const int MAX_LANE_SEED = 2000;
-const int SEED_MARKING_DIST_THRES = 200;
-const int VALID_SEED_MARKING_NUMBER_THRES = 6;
-const double LOW_LEVEL_ASS_THRES = 1.9;//1.9
-const int RANSAC_ITERATIONS = 500;
-const int RANSAC_MODEL_SIZE = 3;
-const int RANSAC_ERROR_THRESHOLD = 90;
-const double RANSAC_INLINERS = 0.75;//;;0.75;
-Tracking trackline, trackpoint;
-int app = 0, c = 2760;
-bool fileFirst = 1, VP_success = 0;
-std::set<VALID_LINE> v;
-cv::Point2f VP(700, 340);
-//bool asso = 0;
-int VP_count = 0;
-vector<VALID_LINE> v_predict,v_pre;
-vector<vector<double>> predictMat;
-std::vector<float> coeff3(3);
 double getdis(pdd a, pdd b) {   
   return std::abs(a.first - b.first); 
 }
-double getAns(double a, double b, double c, double y) {   //format solution
-	double ans;
-	if (a == 0)
-		ans = (y - c) / b;
-  else 
-		ans = (sqrt(abs(pow(b, 2) - 4 * a * (c - y))) - b) / 2 * a;
-	return ans; 
-}
-
-double threshold_up, threshold_down, threshold_mid, threshold_360;
 
 double valueAt(std::vector<float> &f, float x) {
 	float ans = 0.f;
 	for (int i = (int)f.size() - 1; i >= 0; --i) ans = ans * x + f[i];
 	return ans;
 }
-cv::Point2f find_vanishing_point(VALID_LINE line1, VALID_LINE line2) {
-	cv::Point2f dot_p;
-	double dd = 1000;
-	int x;
-	vector<float> co1(3), co2(3);
-	co1[2] = line1.a; 
-	co1[1] = line1.b;
-	co1[0] = line1.c;
-	co2[2] = line2.a;
-	co2[1] = line2.b;
-	co2[0] = line2.c;
-	for (unsigned int xx = 400; xx >= 250; xx -= 1) {
-		double x1 = valueAt(co1, xx); 	
-		double x2 = valueAt(co2, xx);	
-		//cout << "x1:" <<x1 << " x2:"<<x2<<endl;
-	  if (dd > abs(x1 - x2)) {
-			//cout << "x1:" <<x1 << " x2:"<<x2<<endl;
-			if (x2 == 0)
-			  cout << co2[0] << " "<< co2[1]<<" " << co1[2]<<endl;
-			dd = abs(x1 - x2);
-			dot_p.x = (x1 + x2) / 2;
-			x = xx;
-		}
-	}
-	dot_p.y = x;
-  return dot_p; 
-}
-vector<cv::Point2f> interpolate(vector<cv::Point2f>& Data) {
-	int size = Data.size();
-	double dydx = 0, final = 0;
-	vector<cv::Point2f> temp;
-	for (vector<cv::Point2f>::iterator it = Data.begin(); it != Data.end() - 1; it++) {
-		if (it->y >= 380 && it->y <= 450) {
-			dydx = ((it+1)->x - it->x) / ((it+1)->y - it->y);
-			cv::Point2f tmp(it->x + dydx *  0.5, it->y + 0.5);
-			temp.push_back(tmp);
-		}
-		if (it == Data.end() - 1) {
-			final = ((it+1)->x - it->x) / ((it+1)->y - it->y);
-		}
-	}                                             // linear interpolation*/
-	return temp;
-}
-cv::Point2f check_vanishing_point(vector<VALID_LINE>& detection) {
-  cv::Point2f dot_p;
-  dot_p.x = 700;
-  dot_p.y = 340;
-	int count = 0;
-	for (int i = 0; i < detection.size(); i++) {
-		if (detection[i].times > 5)
-		count++;
-	}
-  if (count == 1){
-		vector<float> co1(3);
-		co1[0] = detection[0].c;
-		co1[1] = detection[0].b;
-		co1[2] = detection[0].a;
-	  dot_p.x = valueAt(co1, dot_p.y);
-	  return dot_p;
-	}
-	else if (count == 0){
-		return dot_p;
-	}
-	else {
-		std::vector<float> co(3);
-		//cout << "size:"<<detection.size()<<endl;
-		int second_index = -1, max_index = -1, temp = detection[0].times, temp2 = detection[0].times;
-		for (int i = 0; i < detection.size(); i++) { //find max 2 detection
-			//cout << detection[i].times << endl;
-			if (detection[i].times >= temp) {
-				second_index = max_index;
-				temp = detection[i].times;
-				max_index = i;
-			}
-			else if (detection[i].times >= temp2 || second_index == -1) {
-				second_index = i;
-				temp2 = detection[i].times;
-			}
-		} 
-		//cout << max_index << " " << second_index << endl;
-		dot_p = find_vanishing_point(detection[max_index], detection[second_index]);
-		return dot_p;
-	}
-}
-vector<cv::Point2f> Tracking::predictPoint(ros::Time& time) {
-	vector<cv::Point2f> predictVector;
+
+void LaneDetection::initialize_variable(cv::Mat img_src, float roiRatio) {
+    //cv::GaussianBlur(img_src, img_src, cv::Size(3,3) ,0 ,0);
+	//cv::GaussianBlur(img_src, img_src, cv::Size(3,3) ,0 ,0);
 	
-	vector<double> temp = object.tracker.predict(time);
-	cv::Point2f tmp(temp[0], temp[1]);
-	predictVector.push_back(tmp);
-	return predictVector;
-}
-cv::Point2f Tracking::updatePoint(ros::Time& time, cv::Point2f detection) { 
-	vector<cv::Point2f> predictVector = predictPoint(time);
-
-	cv::Point2f vp;
-	vp.x = predictVector[0].x;
-	vp.y = predictVector[0].y;
-	if (object.times)
-    object.tracker.measIn(time, detection.x, detection.y, 0);
-  else {
-		object.tracker.measIn(time, detection.x, detection.y, 0);
-		object.times++;
-	}
-  return vp;
-
-}
-
-vector<VALID_LINE> Tracking::updateState(ros::Time& time, vector<VALID_LINE>& detection) { 
-    // Predict the state vector
-	if (detection.size() ==0) {
-		v_pre.clear();
-		return v_pre;
-	}
-	vector<vector<double>> predictMat = predictState(time);
-	
-	for (int num = 0; num < objectVector.size(); num++) {
-		VALID_LINE llp;
-		llp.a = predictMat[num][0];
-		llp.b = predictMat[num][1];
-		llp.c = predictMat[num][2];
-		llp.times = objectVector[num].times;
-		v_pre.push_back(llp);
-	}
-	//std::cout << "=================\n" ;
-	vector<int> association = getAssociation(detection, predictMat);
-	// do data associate
-
-	// Update the state vector
-	for (int num = 0; num < association.size(); num++) {
-		int index = association[num];
-		if (index != -1) {
-			objectVector[index].tracker.measIn(time, detection[num].a, detection[num].b, detection[num].c);
-			objectVector[index].liner = detection[num];
-			if(objectVector[index].tracker.getFoundCount() < 10)
-				objectVector[index].tracker.setFoundCount(2);
-		}
-		// First in
-		else {
-			ObjectTracker newObject;
-			newObject.serial = number;
-			newObject.liner = detection[num];
-			newObject.tracker.measIn(time, detection[num].a,detection[num].b, detection[num].c);
-			incNumber();
-			objectVector.push_back(newObject);
-		}
-	}
-	// Delete the tracker if it doesn't be detect in several frame
-	for (vector<ObjectTracker>::iterator it = objectVector.begin(); it != objectVector.end(); it++) {
-		it->times = it->tracker.getFoundCount();
-		it->tracker.setFoundCount(-1);
-		if (it->tracker.getFoundCount() <= 0) {
-			objectVector.erase(it);
-			it--;
-		}	
-	}
-	return v_pre;
-}
-vector<vector<double> > Tracking::predictState(ros::Time& time) {
-	vector<vector<double>> predictMat;
-	for (int num = 0; num < objectVector.size(); num++) {
-		predictMat.push_back(objectVector[num].tracker.predict(time));
-	}
-	return predictMat;
-}
-vector<int> Tracking::getAssociation(vector<VALID_LINE>& detection, vector<vector<double> >& predictMatrix) {
-	vector<vector<double> > lossMatrix(detection.size());
-	vector<int> indexVector;
-	if (!init) {
-		for (int resultNum = 0; resultNum < detection.size(); resultNum++)
-			indexVector.push_back(-1);
-		init = 1;
-	}
-
-	else { 
-		int resultIndex = 0;
-		for (int resultNum = 0; resultNum < detection.size(); resultNum++) {
-			lossMatrix[resultNum] = getLossVector(detection[resultNum], predictMatrix);
-		}
-		HungarianAlgorithm solver;
-		double cost = solver.Solve(lossMatrix, indexVector);
-		for (int num = 0; num < indexVector.size(); num++) {
-			if (indexVector[num] != -1)
-				if (lossMatrix[num][indexVector[num]] >= 50)
-						indexVector[num] = -1;
-		}
-	
-	}
-	return indexVector;
-}
-vector<double>Tracking::getLossVector(VALID_LINE& detection, vector<vector<double> >& predictMatrix) {
-	vector<double> lossVector;
-	double distance;
-	vector<float> co1(3), co2(3);
-	co1[2] = detection.a;
-	co1[1] = detection.b;
-	co1[0] = detection.c;
-
-	for (int num = 0; num < predictMatrix.size(); num++) {
-		co2[2] = predictMatrix[num][0];
-	  co2[1] = predictMatrix[num][1];
-	  co2[0] = predictMatrix[num][2];
-		distance = abs(valueAt(co2, 420) -  valueAt(co1, 420));        
-		if (distance > 35)
-			distance = 1000;
-		lossVector.push_back(distance);
-	}
-	return lossVector;
-}
-void Tracking::incNumber() {
-	number++;
-}
-
-void LaneDetection::initialize_variable(cv::Mat img_src) {
-     
 	img_size = img_src.size();
 	img_height = img_src.rows;
 	img_width = img_src.cols;
 	img_depth = img_src.depth();
-	img_roi_height = (int)(380);
+	img_roi_height = (int)(img_height * roiRatio);//380
+	
 	max_lw.resize(img_height);
 	min_lw.resize(img_height);
 	max_lw_d.resize(img_width);
@@ -309,7 +63,7 @@ void LaneDetection::initialize_variable(cv::Mat img_src) {
 									((img_width - 1) / 2.0));
 		w--;
 	}
-			
+
 }
 
 void LaneDetection::initialize_Img(cv::Mat img_input) {
@@ -322,34 +76,50 @@ void LaneDetection::initialize_Img(cv::Mat img_input) {
 	}
 	lm.resize(0);
 	marking_seed.resize(0);		
+		
+	nodes.resize(0);
+	edges.resize(0);
 }
-    
+cv::Mat LaneDetection::CannyDetector(cv::Mat src) {
+  const int thres = 80, kernel_size = 3;
+  double cannyratio;
+  //const char* window_name = "Canny";
+  cv::Mat src_gray, edges;
+  cv::cvtColor(src, src_gray, cv::COLOR_BGR2GRAY);
+  cv::blur(src_gray, edges, cv::Size(3,3));
+  cv::Canny(edges, edges, thres, thres * cannyratio, kernel_size);
+  cv::Mat dst;// = cv::Scalar::all(zero);
+  src.copyTo(dst, edges);
+  //cv::imshow(window_name, dst);
+  return dst;
+}
 void LaneDetection::lane_marking_detection(cv::Mat img_input, cv::Mat img_show, bool verbose) {
-                                             //std::cout<<"hhhhh"<<std::endl;
-  
+	//std::vector<cv::Point2d> lanemark; 
+  //std::cout << img_roi_height << std::endl;
   for (unsigned int h = img_roi_height; h != img_height;) {
-		int hf_size = 2 + 6 * (h - img_roi_height) / (img_height - img_roi_height);
+		int hf_size = 2 + 25 * (h - img_roi_height) / (img_height - img_roi_height);//25
 		std::vector<int> scan_line(img_width);
     // Lane Edge Extraction
-    //std::cout<<"hhhhh"<<std::endl;
-  
+	//std::cout << std::endl << "------------------"<<std::endl;
 		for (unsigned int w = hf_size + 1; w != img_width - hf_size - 1; ++w) {
 			int l_val = 0, r_val = 0;
-      //std::cout<<"hhhhh"<<std::endl;
+    
 			for (int i = -hf_size; i != 0; ++i) {
 				l_val = l_val + img_gray.at<uchar>(h, w + i);
-        //std::cout<<"a"<<std::endl;
+     
 			}
 			for (int i = 1; i <= hf_size; ++i) {
 				r_val = r_val + img_gray.at<uchar>(h, w + i);
-        //std::cout<<"b"<<std::endl;
+    
 			}
-			if (((float)(r_val - l_val) / (float)hf_size) > gvalue) 
+			//std::cout << (float)(r_val - l_val) / (float)hf_size << " ";
+			if (((float)(r_val - l_val) / (float)hf_size) > gvalue)
 				scan_line[w] = 1;
+                
 			if (((float)(l_val - r_val) / (float)hf_size) > gvalue) 
 				scan_line[w] = -1;
     }
-    //std::cout<<"hhhhh"<<std::endl;
+ 
   
     // Edge Centering
 		int e_flag = 0;
@@ -418,7 +188,7 @@ void LaneDetection::lane_marking_detection(cv::Mat img_input, cv::Mat img_show, 
 					}
 					lm_new.size = r_pt.x - l_pt.x;
 					lm.push_back(lm_new);
-					w = r_pt.x + 0;
+					w = r_pt.x + 3;
 					m_flag = 0;
 					if (lm.size() >= MAX_LANE_MARKING - 1) { // Error lane size
 					
@@ -429,20 +199,22 @@ void LaneDetection::lane_marking_detection(cv::Mat img_input, cv::Mat img_show, 
 			}
 		}
 		if (lm.size() >= MAX_LANE_MARKING - 1) {
-			return;
+			return ;
 		}
 		h++;
 	}
 	if (verbose) {
-		cv::Mat img_test = img_show.clone();
-		for (unsigned int n = 0; n != lm.size(); ++n) {
+	//	cv::Mat img_test = img_show.clone();
+	  for (unsigned int n = 0; n != lm.size(); ++n) {
 			int r = rand() % 200 + 10;
 			int g = rand() % 200 + 10;
 			int b = rand() % 200 + 10;
 			cv::line(img_show, lm[n].str_p, lm[n].end_p, CV_RGB(r, g, b), 1, 8, 0);
 			cv::line(img_show, lm[n].cnt_p, lm[n].cnt_p, CV_RGB(250, 250, b), 1, 8, 0);
+      //lanemark.push_back(lm[n].cnt_p);
 		}
 	}
+	
 }
 
 void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool verbose) {
@@ -486,7 +258,7 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 			int b = rand() % 200 + 50;
 			for (unsigned int jj = 0; jj < marking_seed[ii].index.size(); ++jj) {
 				int idx = marking_seed[ii].index[jj];
-				cv::line(img_test_marking_seed, lm[idx].str_p, lm[idx].end_p, CV_RGB(r, g, b), 1, 8, 0);
+				//cv::line(img_show, lm[idx].str_p, lm[idx].end_p, CV_RGB(r, g, b), 1, 8, 0);
 			}
 		}	
 
@@ -502,6 +274,25 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 			marking_seed[ii].flag = -1;
 			continue;
 		}
+		if (count_i < 10) {
+			float mean = 0.f;
+			for (int jj = 0; jj < count_i; jj++) {
+				int idx_i = marking_seed[ii].index[jj];
+				mean = mean + lm[idx_i].size;
+			}
+			mean = (float)mean / (float)count_i;
+			float var = 0.f;
+			for (int jj = 0; jj < count_i; jj++) {
+				int idx_i = marking_seed[ii].index[jj];
+				var = var + (lm[idx_i].size - mean)*(lm[idx_i].size - mean);
+			}
+			var = var / (float)count_i;
+
+			// if variance is higher, it regarded as invalid
+			if (var > 6.0) {
+				marking_seed[ii].flag = -1;
+			}
+		}
 	}
 
 // STEP 1-3. Seed specification
@@ -514,6 +305,7 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 		}
 		seed_specification(marking_seed[ii], 1);
 		val_seed.push_back(ii);
+
 	}
 
 // STEP 2. Seed Growing - Dist_mat Generation
@@ -535,6 +327,7 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 		int cnct_count = 0;
 		int cnct_idx = -1;
 		for (int jj = 0; jj < ii; ++jj) {
+			//cout <<dist_mat.at<float>(jj, ii)<<" ";
 			if (dist_mat.at<float>(jj, ii) > LOW_LEVEL_ASS_THRES) {
 				cnct_count++;
 				cnct_idx = jj;
@@ -565,7 +358,7 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 			seed_connect->index.resize(0);
 			seed_dst->flag = 1;
 			seed_connect->flag = -1;
-			seed_specification(*seed_dst, 0);
+			seed_specification(*seed_dst, 1);
 			seed_dst->str_dir = seed_connect->str_dir;
 			seed_dst->str_p = seed_connect->str_p;
 			seed_dst->length = seed_dst->length + seed_connect->length;
@@ -630,7 +423,7 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 	}
 
 	if (verbose) {
-		cv::Mat img_test_raw_level_assoc = img_show.clone();
+		//cv::Mat img_test_raw_level_assoc = img_show.clone();
 		for (unsigned int ii = 0; ii < marking_seed.size(); ++ii) {
 			if (marking_seed[ii].flag < 0) {
 				continue;
@@ -644,8 +437,6 @@ void LaneDetection::seed_generation(cv::Mat img_input, cv::Mat img_show, bool ve
 				int idx = seed.index[jj];
 				cv::line(img_show, lm[idx].str_p, lm[idx].end_p, CV_RGB(r, g, b), 1, 8, 0);
 			}
-
-	//std::cout<<linecolor.size()<<std::endl;
 		}
 
 	} 
@@ -666,7 +457,10 @@ void LaneDetection::seed_specification(MARKING_SEED &marking_seed_curr, int mode
 		temp_y += (float)lm[idx_lm].cnt_p.y;
 		points.push_back(lm[idx_lm].cnt_p);
 	}
-	poly2(points, points.size(), coeff2);
+//	if (VP.x > l_bound && VP.x < 800)
+		poly2(points, points.size(), coeff2);
+	//else
+//		poly4(points, points.size(), coeff2);
 	marking_seed_curr.cnt_dir = CV_PI / 2 - atan(coeff2[1]);
 	marking_seed_curr.cnt_p.x = (int)(temp_x / n_of_lm);
 	marking_seed_curr.cnt_p.y = (int)(temp_y / n_of_lm);
@@ -682,99 +476,540 @@ void LaneDetection::seed_specification(MARKING_SEED &marking_seed_curr, int mode
 		} 	
 		else {
 			int n_samples = std::max(5, (int)(0.3f * n_of_lm));
-			poly2(points, n_samples, coeff2);
+			//if (VP.x > l_bound && VP.x < r_bound)
+				poly2(points, n_samples, coeff2);
+			//else
+			//  poly4(points, n_samples, coeff2);
 			marking_seed_curr.str_dir = (float)(CV_PI / 2 - atan(coeff2[1]));
 			points.resize(0);
 			for (int ii = n_of_lm - 1; ii >= n_of_lm - n_samples; ii--) {
 				int idx_i = marking_seed_curr.index[ii];
 				points.push_back(lm[idx_i].cnt_p);
 			}
+			//if (VP.x > l_bound && VP.x < r_bound)
 			poly2(points, n_samples, coeff2);
+			//else
+			//  poly4(points, n_samples, coeff2);
 			marking_seed_curr.end_dir = (float)(CV_PI / 2 - atan(coeff2[1]));
 		}
 	}
 }
+vector<cv::Point2d> LaneDetection::graph_generation(cv::Mat inputImage, cv::Mat outputImage, int numThreshold) {
 
-int LaneDetection::validating_final_seeds(cv::Mat img_show, cv::Mat &img_result, ros::Time time, bool verbose) {
-  cv::Mat img_test_val = img_show.clone();
-  std::vector<float> coeff(3);
-  cout << "---------------frame-----------------" << endl;
+	srand((unsigned)time(NULL));
+  std::vector<cv::Point2d> output;
+	cv::Mat img_test_graph = cv::Mat(img_size, CV_8UC3);
+
+	// STEP 1. Graph Formulation
+	std::vector<int> grp_seed;
+
+	for (int ii = 0; ii < marking_seed.size(); ii++) {
+		if (marking_seed[ii].flag < 0) {
+			continue;
+		}
+		if (marking_seed[ii].index.size() < VALID_SEED_MARKING_NUMBER_THRES) {
+			continue;
+		}
+		grp_seed.push_back(ii);
+	}
+
+
+	// STEP 2-1. Node Generation - Generating valid node
+	int n_of_grp_seeds = grp_seed.size();
+	cv::Mat vert_mat = cv::Mat(n_of_grp_seeds, n_of_grp_seeds, CV_32SC1);
+	std::vector<int> row_sum(n_of_grp_seeds);
+	std::vector<int> col_sum(n_of_grp_seeds);
+	std::vector<int> ele_sum(n_of_grp_seeds);
+
+	for (int ii = 0; ii < n_of_grp_seeds; ii++) {
+		for (int jj = 0; jj < n_of_grp_seeds; jj++) {
+			vert_mat.at<int>(ii, jj) = dist_ftn3(grp_seed[ii], grp_seed[jj], ii, jj);
+		}
+		vert_mat.at<int>(ii, ii) = -1;
+	}
+	// STEP 2-2. Separating nodes to each groups
+	int n_of_node_grps = 0;
+	for (int ii = 0; ii < n_of_grp_seeds; ii++) {
+		for (int jj = 0; jj < n_of_grp_seeds; jj++) {
+			if (vert_mat.at<int>(ii, jj) == 1) {
+				vert_mat.at<int>(ii, jj) = n_of_node_grps + 100;
+				node_grouping(vert_mat, n_of_grp_seeds, 0, ii, n_of_node_grps + 100);
+				node_grouping(vert_mat, n_of_grp_seeds, 0, jj, n_of_node_grps + 100);
+				node_grouping(vert_mat, n_of_grp_seeds, 1, jj, n_of_node_grps + 100);
+				node_grouping(vert_mat, n_of_grp_seeds, 1, ii, n_of_node_grps + 100);
+				n_of_node_grps++;
+			}
+		}
+	}
+
+	// STEP 2-3. Node indexing & initialization
+	nodes.resize(0);
+	for (int ii = 0; ii < n_of_grp_seeds; ii++) {
+		for (int jj = 0; jj < n_of_grp_seeds; jj++) {
+			if (vert_mat.at<int>(ii, jj) >= 100) {
+				NODE_CRF node_new;
+				node_new.vert_idx1 = ii;
+				node_new.vert_idx2 = jj;
+				node_new.idx = vert_mat.at<int>(ii, jj) - 100;
+
+				// Node initialization - Unary Term
+				node_new.unary = unary_ftn(grp_seed[ii], grp_seed[jj]);
+				nodes.push_back(node_new);
+			}
+		}
+	}
+
+	// STEP 2-4. Node Grouping
+	std::vector<NODE_GRP> node_grp(n_of_node_grps);
+	for (int ii = 0; ii < nodes.size(); ii++) {
+		int node_grp_idx = nodes[ii].idx;
+		node_grp[node_grp_idx].idx.push_back(ii);
+	}
+
+	// Hungarian Method
+		// 1) Sorting! in the order of Unary term - Unary term:Logistic function, Sorting - bubble sort
+		// 2) Labling using the Constraint - with clear rules! with 4)
+		// 3) Calculating the pairwise term with finding Edges - Nodes which are in the same group have the same edges
+		// 4) iteration back to the 1) - clear rules, with 2)
+
+	// STEP 3. Hungarian Methos, Edge Indexing, Initialization
+	for (int nn = 0; nn < n_of_node_grps; nn++) {
+		// STEP 3-1. Sorting! in the order of Unary term - Unary term:Logistic function, Sorting - bubble sort
+		for (int ii = node_grp[nn].idx.size() - 1; ii > 0; ii--) {
+			for (int jj = 0; jj < ii; jj++) {
+				if (nodes[node_grp[nn].idx[jj]].unary < nodes[node_grp[nn].idx[jj + 1]].unary) {
+					int temp_val = node_grp[nn].idx[jj + 1];
+					node_grp[nn].idx[jj + 1] = node_grp[nn].idx[jj];
+					node_grp[nn].idx[jj] = temp_val;
+				}
+			}
+		}
+
+		if (node_grp[nn].idx.size() == 1) {	// trivial case which doesn't need the inference
+			continue;
+		}
+		for (int n_iter = 0; n_iter < node_grp[nn].idx.size(); n_iter++) {
+			// STEP 3-2. For each iteration in Hungarian Methods, Find the possible edges
+			for (int ii = 0; ii < n_of_grp_seeds; ii++) {
+				row_sum[ii] = 0;
+				col_sum[ii] = 0;
+				ele_sum[ii] = 0;
+			}
+			nodes[node_grp[nn].idx[n_iter]].label = 1;
+			int n_of_labels = 1;
+			row_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx1]++;
+			col_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx2]++;
+			ele_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx1]++;
+			ele_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx2]++;
+
+			for (int ii = 0; ii < node_grp[nn].idx.size(); ++ii) {
+				if (ii == n_iter) {
+					continue;
+				}
+				if (row_sum[nodes[node_grp[nn].idx[ii]].vert_idx1]>0) {
+					nodes[node_grp[nn].idx[ii]].label = 0;
+					continue;
+				}
+				if (col_sum[nodes[node_grp[nn].idx[ii]].vert_idx2]>0) {
+					nodes[node_grp[nn].idx[ii]].label = 0;
+					continue;
+				}
+				nodes[node_grp[nn].idx[ii]].label = 1;
+				n_of_labels++;
+				row_sum[nodes[node_grp[nn].idx[ii]].vert_idx1]++;
+				col_sum[nodes[node_grp[nn].idx[ii]].vert_idx2]++;
+				ele_sum[nodes[node_grp[nn].idx[ii]].vert_idx1]++;
+				ele_sum[nodes[node_grp[nn].idx[ii]].vert_idx2]++;
+			}
+			// Discarding those which cannot construct an edge
+			if (n_of_labels <= 1) {
+				continue;
+			}
+			// Indexing nodes consisting of the edge
+			EDGE_CRF edge_new;
+			for (int ii = 0; ii < node_grp[nn].idx.size(); ++ii) {
+				if (nodes[node_grp[nn].idx[ii]].label == 1) {
+					edge_new.node_idx.push_back(node_grp[nn].idx[ii]);
+				}
+			}
+			int iden_flag = 0;	// 0 if different, 1 if identical
+			for (int ii = 0; ii < edges.size(); ii++) {
+				if (edges[ii].node_idx.size() != edge_new.node_idx.size()) {
+					//printf("  >> disciarding <-> %d - count\n", i);
+					iden_flag = 0;
+					continue;
+				}
+				for (int jj = 0; jj < edge_new.node_idx.size(); jj++) {
+					if (edges[ii].node_idx[jj] != edge_new.node_idx[jj]) {
+						//printf("  >> disciarding <-> %d - index %d\n", i, j);
+						iden_flag = 0;
+						break;
+					}
+					iden_flag = 1;
+				}
+				if (iden_flag == 1) {
+					break;
+				}
+			}
+
+			if ((edges.size() != 0) && (iden_flag == 1)) {
+				continue;	// this edges is already included
+			}
+
+			// STEP 3-3. Pairwise cost calculation
+			int n_of_pts = 0;
+			std::vector<cv::Point2f> pts;
+			for (int ii = 0; ii < n_of_grp_seeds; ii++) {
+				if (ele_sum[ii] > 0) {
+					int count_i = marking_seed[grp_seed[ii]].index.size();
+					for (int jj = 0; jj < count_i; jj++) {
+						if (count_i > 15) {
+							if (jj % (count_i / 14) != 0) {
+								continue;
+							}
+						}
+						cv::Point2f pts_new;
+						pts_new.x = (float)lm[marking_seed[grp_seed[ii]].index[jj]].cnt_p.x;
+						pts_new.y = (float)lm[marking_seed[grp_seed[ii]].index[jj]].cnt_p.y;
+						pts.push_back(pts_new);
+					}
+				}
+			}
+
+			edge_new.pairwise = pairwise_ftn(pts);
+			edge_new.grp_idx = nn;
+			edges.push_back(edge_new);
+		}
+	}
+
+	// CRF Formulation, Hungarian Method
+	std::vector<int> final_label;
+	final_label.resize(nodes.size(), -1);
+
+	double energy = 0;
+	double min_energy = 0;
+	int expt_flag = 0;
+	for (int nn = 0; nn < n_of_node_grps; nn++) {
+
+		min_energy = 0;
+		//printf(" > grp #%d\n\n", nn);
+		for (int n_iter = 0; n_iter<node_grp[nn].idx.size(); n_iter++) {
+			//printf(" >> iter #%d\n", n_iter);
+			// Exception # 1
+			if (node_grp[nn].idx.size() == 1) {
+				if (nodes[node_grp[nn].idx[0]].unary > 0.5) {
+					final_label[node_grp[nn].idx[0]] = 1;
+				}
+				else {
+					final_label[node_grp[nn].idx[0]] = 0;
+				}
+				continue;
+			}
+			// Exception # 2
+			expt_flag = 0;
+			for (int ii = 0; ii<node_grp[nn].idx.size(); ii++) {
+				if (nodes[node_grp[nn].idx[ii]].unary > 0.5) {
+					break;
+				}
+				if (ii == node_grp[nn].idx.size() - 1) {
+					expt_flag = 1;
+				}
+			}
+			if (expt_flag == 1) {
+				continue;
+			}
+
+			// 2) Labling using the Constraint - with clear rules! with 4)
+			for (int ii = 0; ii < n_of_grp_seeds; ii++) {
+				row_sum[ii] = 0;
+				col_sum[ii] = 0;
+				ele_sum[ii] = 0;
+			}
+			nodes[node_grp[nn].idx[n_iter]].label = 1;
+			int n_of_labels = 1;
+			row_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx1]++;
+			col_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx2]++;
+			ele_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx1]++;
+			ele_sum[nodes[node_grp[nn].idx[n_iter]].vert_idx2]++;
+			for (int ii = 0; ii < node_grp[nn].idx.size(); ++ii) {
+				if (ii == n_iter) {
+					continue;
+				}
+				if (row_sum[nodes[node_grp[nn].idx[ii]].vert_idx1]>0) {
+					nodes[node_grp[nn].idx[ii]].label = 0;
+					continue;
+				}
+				if (col_sum[nodes[node_grp[nn].idx[ii]].vert_idx2]>0) {
+					nodes[node_grp[nn].idx[ii]].label = 0;
+					continue;
+				}
+				nodes[node_grp[nn].idx[ii]].label = 1;
+				n_of_labels++;
+				row_sum[nodes[node_grp[nn].idx[ii]].vert_idx1]++;
+				col_sum[nodes[node_grp[nn].idx[ii]].vert_idx2]++;
+				ele_sum[nodes[node_grp[nn].idx[ii]].vert_idx1]++;
+				ele_sum[nodes[node_grp[nn].idx[ii]].vert_idx2]++;
+			}
+
+			// 3) Calculating the pairwise term after finding Edges - Nodes which are in the same group have the common edges
+			//printf("  >> edges: ");
+			for (int ii = 0; ii < edges.size(); ii++) {
+				if (edges[ii].grp_idx != nn) {
+					continue;
+				}
+				if (edges[ii].node_idx.size() != n_of_labels) {
+					edges[ii].label = 0;
+					continue;
+				}
+				for (int jj = 0; jj < edges[ii].node_idx.size(); jj++) {
+					if (nodes[edges[ii].node_idx[jj]].label != 1) {
+						edges[ii].label = 0;
+						break;
+					}
+					edges[ii].label = 1;
+				}
+				//printf("[%d] %d / ",ii,edges[ii].label);
+			}
+			//printf("\n");
+
+			////  Calculating Energy & Updating labels
+			energy = 0;
+			for (int ii = 0; ii < node_grp[nn].idx.size(); ++ii) {
+				if (nodes[node_grp[nn].idx[ii]].label == 1) {
+					energy = energy - nodes[node_grp[nn].idx[ii]].unary;
+				}
+				else {
+					energy = energy - (1 - nodes[node_grp[nn].idx[ii]].unary);
+				}
+			}
+			expt_flag = 0;
+			for (int ii = 0; ii < edges.size(); ++ii) {
+				if (edges[ii].grp_idx != nn) {
+					continue;
+				}
+				if (edges[ii].label == 1) {
+					energy = energy - edges[ii].pairwise;
+					if (edges[ii].pairwise < 0.5) {
+						expt_flag = 1;
+					}
+				}
+				else {
+					energy = energy - (1 - edges[ii].pairwise);
+				}
+			}
+			//printf(" >>> energy = %.3f, min = %.3f\n", energy, min_energy);
+
+			if (energy < min_energy) {
+				min_energy = energy;
+				for (int ii = 0; ii < node_grp[nn].idx.size(); ++ii) {
+					final_label[node_grp[nn].idx[ii]] = nodes[node_grp[nn].idx[ii]].label;
+					if (expt_flag == 1) {
+						final_label[node_grp[nn].idx[ii]] = 0;
+					}
+				}
+			}
+		}
+	}
+
+	// Seeds association according to the nodes those having been labeled by 1 : s_i -> s_j ( s_i is absorbed into s_j )
+	int s_i, s_j;
+	int count_j;
+	for (int ii = 0; ii < nodes.size(); ++ii) {
+		if (nodes[ii].label != 1) {
+			continue;
+		}
+		s_i = grp_seed[nodes[ii].vert_idx1];
+		s_j = grp_seed[nodes[ii].vert_idx2];
+		count_j = marking_seed[s_j].index.size();
+		for (int jj = 0; jj < marking_seed[s_i].index.size(); ++jj) {
+			marking_seed[s_j].index.push_back(marking_seed[s_i].index[jj]);
+		}
+
+		marking_seed[s_j].flag = 1;
+		marking_seed[s_i].flag = -1;
+		seed_specification(marking_seed[s_j], 0);
+		marking_seed[s_j].str_dir = marking_seed[s_i].str_dir;
+		marking_seed[s_j].str_p = marking_seed[s_i].str_p;
+		marking_seed[s_j].length = marking_seed[s_i].length + marking_seed[s_j].length;
+	}
+
+	cv::Mat img_test_crf = cv::Mat::zeros(img_size, CV_8UC3);
+	// cv::Mat img_test_crf = cv::Mat::zeros(img_size, CV_8UC1);
+	//cv::Mat img_test_crf1 = outputImage;
+	size_t count = 0;
+	int g = 5;
+    std::vector<cv::Point2d> temp;
+	for (int ii = 0; ii < marking_seed.size(); ++ii) {
+
+		g++; //feature map color
+		if (marking_seed[ii].index.size() < numThreshold) {
+			marking_seed[ii].flag = 0;
+			continue;
+		}
+		if (marking_seed[ii].flag < 0) {
+			continue;
+		}
+		int r = rand() % 230 + 20;
+		int g = rand() % 230 + 20;
+		int b = rand() % 230 + 20;
+
+		// polynomial fitting
+		std::vector<cv::Point2f> pts;
+		std::vector<float> coeff(3);
+		for (int jj = 0; jj < marking_seed[ii].index.size(); ++jj) {
+			int temp_i = marking_seed[ii].index[jj];
+			cv::Point2d temp_point;
+			//OriginalToBirdviewByHomography(homographyMatrix, (double)lm[temp_i].cnt_p.x, (double)lm[temp_i].cnt_p.y, temp_point.x, temp_point.y);
+			temp_point.x = (double)lm[temp_i].cnt_p.x;
+			temp_point.y = (double)lm[temp_i].cnt_p.y;
+
+			if(temp_point.x >=0 && temp_point.x <img_height && temp_point.y>=img_roi_height && temp_point.y<img_width){
+
+				// polynomial fitting
+				pts.push_back(temp_point);
+				//cv::circle(outputImage, lm[temp_i].cnt_p, 1,  cv::Scalar(b, g, r), 1, 1, 0);
+				cv::circle(outputImage, lm[temp_i].cnt_p, 1,  cv::Scalar(0, 255, 0), 5, 1, 0);
+				output.push_back(lm[temp_i].cnt_p);
+				//cv::circle(outputImage, lm[temp_i].cnt_p, 1,  cv::Scalar(0, 0, 255), 5, 1, 0);
+			}
+			
+		}
+        cv::Point2d fake;
+		fake.x = -1;
+		fake.y = -1;
+		output.push_back(fake);
+	}
+	//output.push_back(temp);
+	return output;
+}
+void poly_fit(float *in_pts, float *in_stds, float *out, int valid_len) {
+  // References to inputs
+
+  Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 1> > pt_s(in_pts, valid_len);
+  Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 1> > std(in_stds, valid_len);
+  Eigen::Map<Eigen::Matrix<float, 3, 1> > p(out, 3);
+  Eigen::Matrix<float, 340, 3> vander;
+  float y0 = pt_s[0];
+  pt_s = pt_s.array() - y0;
+
+  for(int i = 0; i <340; i++) {
+    for(int j = 0; j < 3; j++) {
+      vander(i, j) = pow(i, 4-j-1);
+    }
+  }
+  // Build Least Squares equations
+  Eigen::Matrix<float, Eigen::Dynamic,3> lhs = vander.topRows(valid_len).array().colwise() / std.array();
+  Eigen::Matrix<float, Eigen::Dynamic, 1> rhs = pt_s.array() / std.array();
+
+  // Improve numerical stability
+  Eigen::Matrix<float, 3, 1> scale = 1. / (lhs.array()*lhs.array()).sqrt().colwise().sum();
+  lhs = lhs * scale.asDiagonal();
+
+  // Solve inplace
+  p = lhs.colPivHouseholderQr().solve(rhs);
+
+  // Apply scale to output
+  p = p.transpose() * scale.asDiagonal();
+
+  out[3] = y0;
+}
+std::vector<VALID_LINE> LaneDetection::validating_final_seeds(double rotate, ros::Time times, cv::Mat homo, ros::Publisher marker_pub) {
+  std::set<VALID_LINE> v;
+  std::vector<float> coeff(4);
+  int thers = 200;
+  //for (int a = 0;a < 2; a++){	
+	visualization_msgs::MarkerArray markerarray;
   for (unsigned int ii = 0; ii < marking_seed.size(); ++ii) {
-    if ((marking_seed[ii].flag == 0) && (marking_seed[ii].index.size() > 70)) {//70
+	
+		//if the lane after ass still less than 70 -> delete
+    if ((marking_seed[ii].flag == 0) && (marking_seed[ii].index.size() > thers)) {//70
       marking_seed[ii].flag = 1;
     }
     if (marking_seed[ii].flag < 1) {
       continue;
     }
     float length = length_ftn(marking_seed[ii].end_p, marking_seed[ii].str_p);
-    //60
-    if (length < 60) {
+    if (length < thers) {
       marking_seed[ii].flag = 0;
       continue;
     }
-    if (marking_seed[ii].length < 60) {
+    if (marking_seed[ii].length < thers) {
       marking_seed[ii].flag = 0;
       continue;
     }
-    if ((length == marking_seed[ii].length) && (length < 60)) {
+    if ((length == marking_seed[ii].length) && (length < thers)) {
       marking_seed[ii].flag = 0;
       continue;
     }
-    std::vector<cv::Point2f> pts;
-    for (unsigned int pp = 0; pp < marking_seed[ii].index.size(); pp++) {
-      //cout << "point++";
+    std::vector<cv::Point2f> pts, pts_2;
+		visualization_msgs::Marker marker;
+		marker.header.frame_id = "base_link";
+		marker.header.stamp = ros::Time::now();
+		marker.action = visualization_msgs::Marker::ADD;
+		marker.pose.orientation.w = 1;
+		marker.ns = to_string(times.nsec);
+		marker.id = ii;
+		marker.type = visualization_msgs::Marker::POINTS;
+		marker.lifetime = ros::Duration(0.5);
+		marker.scale.x = 2;
+		marker.scale.y = 2;
+		marker.scale.z = 2;
+		marker.color.g = 1;
+		marker.color.a = 1;
+		//cout << homo;
+	  for (unsigned int pp = 0; pp < marking_seed[ii].index.size(); pp++) {
       int idx_lm = marking_seed[ii].index[pp];
       pts.push_back(lm[idx_lm].cnt_p);
-    }
-    /*if (VP_success) {
-      pts.push_back(VP);
-      cout <<"push!!";
-    }*/
-		//pts.push_back(VP);
-    //auto parabola = RANSAC_Parabola(RANSAC_ITERATIONS, RANSAC_MODEL_SIZE,
-    //                    static_cast<int>(RANSAC_INLINERS * pts.size()),
-    //                    RANSAC_ERROR_THRESHOLD, pts);
-		//vector<float> temp(3);
-		//temp[0] = parabola.c;
-		//temp[1] = parabola.b;
-		//temp[2] = parabola.a;
-    //if (abs(valueAt(temp, VP.y) - VP.x) > 10 && VP_success) {
-		//	marking_seed[ii].flag = 0;
-		//  continue;
-	  //	}
-		//else { 
-			//pts.push_back(VP);
-			/*vector<cv::Point2f> interpolation =
-			 interpolate(pts);
-			for (int ii = 0; ii < interpolation.size(); ii++)
-				pts.push_back(interpolation[ii]);*/
-      auto parabola = RANSAC_Parabola(RANSAC_ITERATIONS, RANSAC_MODEL_SIZE,
-                        static_cast<int>(RANSAC_INLINERS * pts.size()),
-                        RANSAC_ERROR_THRESHOLD, pts);
-			if (VP.x > 460 && VP.x < 800) {
-        if (std::abs(parabola.a) > 0.0023) {//0.0013
-          marking_seed[ii].flag = 0;
-          continue;
-        }
-			}
-			else {
-        if (std::abs(parabola.a) > 0.013) {//0.0013
-          marking_seed[ii].flag = 0;
-          continue;
-        }
-			}
-		  if (!pts.empty()) {
-			  v.insert(VALID_LINE{parabola.a, parabola.b, parabola.c, 2});
-	   	}
-		//}
+      cv::Mat point = (cv::Mat_<double>(3,1) << lm[idx_lm].cnt_p.x, lm[idx_lm].cnt_p.y, 1);
+			cv::Mat projectPoint = homo * point;
+			cv::Point2d tlPoints2d(projectPoint.at<double>(0)/projectPoint.at<double>(2),
+															projectPoint.at<double>(1)/projectPoint.at<double>(2));
+			geometry_msgs::Point p;
+			p.x = tlPoints2d.y;
+			p.y = tlPoints2d.x;
+			p.z = 0;
+			marker.points.push_back(p);
+	  }
+		markerarray.markers.push_back(marker);
+		marker_pub.publish(markerarray);
+	  vision::lane_model::Parabola parabola;
+	  parabola = RANSAC_Parabola(RANSAC_ITERATIONS, RANSAC_MODEL_SIZE,
+												static_cast<int>(RANSAC_INLINERS * pts.size()),
+												RANSAC_ERROR_THRESHOLD, pts, 3);
+		if (std::abs(rotate) <= 80) {//straight
+		  if (rotate > 80 && parabola.a < 0) {
+			marking_seed[ii].flag = 0;
+			continue;				
+		  }
+		  else if (rotate < 80 && parabola.a > 0) {
+			marking_seed[ii].flag = 0;
+			continue;				
+		  }
+		  if (std::abs(parabola.a) > 0.0013) {
+			marking_seed[ii].flag = 0;
+			continue;
+		  }
+		}
+		/*else if (marking_seed[ii].length > 150 && length > 150) {//curve
+		  	parabola = RANSAC_Parabola(pts.size() * 0.1, pts.size() *0.9, static_cast<int>(RANSAC_INLINERS * pts.size()), RANSAC_ERROR_THRESHOLD, pts, 4);
+		}*/
+		
+		if (!parabola.IsValid()) {
+		  marking_seed[ii].flag = 0;
+      continue;
+		}
+		if (!pts.empty()) {
+		  v.insert(VALID_LINE{parabola.a, parabola.b, parabola.c, parabola.d, (int)pts[0].y});
+		  //cout << "measure_CV:"<<parabola.ToString() << endl;
+	  }
+
   }
+
+	
   // remove error lanes
 	auto prev = v.begin();
-	threshold_up = 70;//70
-	threshold_360 = 150;
-	threshold_mid = 250;
-	threshold_down = 0;
-	std::vector<VALID_LINE> tmp, res; 
+	double threshold_up = 140, threshold_360 = 300, threshold_mid = 500, threshold_down = 0;
+	std::vector<VALID_LINE> tmp, res, output; 
 	if (v.size() > 1) {
 		tmp.push_back(*prev);
 		for (auto it = std::next(v.begin()); it != v.end(); it++) {
@@ -802,44 +1037,10 @@ int LaneDetection::validating_final_seeds(cv::Mat img_show, cv::Mat &img_result,
 	else if (v.size() == 1) {
 		res.push_back(*v.begin());
 	}
-
-	v_predict = trackline.updateState(time,res);
-	cv::circle(img_test_val, check_vanishing_point(v_predict), 1, CV_RGB(255, 255, 255), 5, 4, 0);
-	cout << check_vanishing_point(v_predict) << endl;
-	VP = trackpoint.updatePoint(time, check_vanishing_point(v_predict));
-	cv::circle(img_test_val, VP, 1, CV_RGB(0, 0, 255), 5, 4, 0);
-	int rotate = 0;
-	if (VP.x > 800)
-	  rotate = 1;
-	/*for (auto it: res) {
-		cv::Point2f dot_p;
-		coeff[2] = it.a;
-		coeff[1] = it.b;
-		coeff[0] = it.c;
-		for (unsigned int xx = 380; xx <= img_height; ++xx) {//380
-			dot_p.y = xx;
-			dot_p.x = valueAt(coeff, dot_p.y); 
-			cv::circle(img_test_val, dot_p, 1,CV_RGB(255, 0, 0),  2, 4, 0);
-		} //std::cout<<"end"<<std::endl<<std::endl;
-	}*/
-	for (auto it: v_predict) {
-		if (it.times < 6)
-		  continue;
-		cv::Point2f dot_p;
-		coeff[2] = it.a;
-		coeff[1] = it.b;
-		coeff[0] = it.c;
-		for (unsigned int xx = 380; xx <= img_height; ++xx) {
-			dot_p.y = xx;
-			dot_p.x = valueAt(coeff, dot_p.y); 
-			cv::circle(img_test_val, dot_p, 1,CV_RGB(0, 255, 0),  2, 1, 0);
-		} //std::cout<<"end"<<std::endl<<std::endl;
-	}
-
-	img_result = img_test_val.clone();
 	v.clear();
-	v_pre.clear();
-	return rotate;
+
+	return res;
+  
 }
 
 int LaneDetection::dist_ftn1(int s_i, int s_j, double slope) {
@@ -879,14 +1080,14 @@ float LaneDetection::dist_ftn2(int i, int j) {
 		temp += (slp[i] - slp_mean) * (slp[i] - slp_mean);
 	}
 	float slp_var = temp / 7;
-	if (slp_var > 0.5) {
+	if (slp_var > 0.5) {//0.5
 		return 0;
 	}
 	float sig = 0.25;
 	float diff1, diff2;
 	diff1 = slp[0] - slp[6];
 	diff2 = slp[1] - slp[3];
-	if (((abs(diff1) + abs(diff2)) > 0.6) && (diff1 * diff2 > 0))	{
+	if (((abs(diff1) + abs(diff2)) > 0.6) && (diff1 * diff2 > 0))	{//0.6
 		return 0;
 	}
 	if (abs(diff1) > 1.570796) {
@@ -928,4 +1129,279 @@ void LaneDetection::poly2(std::vector<cv::Point2f> points, int n, std::vector<fl
 	coeff[0] = xMat(0, 0);
 	coeff[1] = xMat(1, 0);
 }
+void LaneDetection::poly3(std::vector<cv::Point2f> points, int n, std::vector<float>& coeff) {
 
+	float norm_f = 1.f;
+	float temp;
+	float err = 0;
+	cv::Mat a = cv::Mat(3, 3, CV_32FC1);
+	cv::Mat b = cv::Mat(3, 1, CV_32FC1);
+	cv::Mat c = cv::Mat(3, 3, CV_32FC1);
+	cv::Mat d = cv::Mat(3, 1, CV_32FC1);
+	cv::Mat e = cv::Mat(3, 1, CV_32FC1);
+
+	for (int ii = 0; ii < n; ii++) {
+		points[ii].x = points[ii].x / norm_f;
+		points[ii].y = points[ii].y / norm_f;
+	}
+	// configuring matrix 'a'
+	a.at<float>(0, 0) = (float)n;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y;
+	}
+	a.at<float>(0, 1) = (float)temp;
+	a.at<float>(1, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y;
+	}
+	a.at<float>(0, 2) = (float)temp;
+	a.at<float>(1, 1) = (float)temp;
+	a.at<float>(2, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y;
+	}
+	a.at<float>(1, 2) = (float)temp;
+	a.at<float>(2, 1) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y * points[i].y;
+	}
+	a.at<float>(2, 2) = (float)temp;
+
+	// configuring matrix 'b'
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].x;
+	}
+	b.at<float>(0, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].x * points[i].y;
+	}
+	b.at<float>(1, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].x;
+	}
+	b.at<float>(2, 0) = (float)temp;
+
+	// matrix operation
+	c = a.inv();
+	d = c*b;
+	coeff[0] = d.at<float>(0, 0)*norm_f;
+	coeff[1] = d.at<float>(1, 0)*norm_f;
+	coeff[2] = d.at<float>(2, 0) / norm_f;
+
+	e = a*d;
+	err = abs(e.at<float>(0, 0) - b.at<float>(0, 0)) + abs(e.at<float>(1, 0) - b.at<float>(1, 0)) + abs(e.at<float>(2, 0) - b.at<float>(2, 0));
+
+
+}
+void LaneDetection::poly4(std::vector<cv::Point2f> points, int n, std::vector<float>& coeff) {
+
+	float norm_f = (float)20.f;
+	float temp;
+	double err = 0;
+	cv::Mat a = cv::Mat(4, 4, CV_32FC1);
+	cv::Mat b = cv::Mat(4, 1, CV_32FC1);
+	cv::Mat c = cv::Mat(4, 4, CV_32FC1);
+	cv::Mat d = cv::Mat(4, 1, CV_32FC1);
+	cv::Mat e = cv::Mat(4, 1, CV_32FC1);
+
+	for (int i = 0; i < n; i++) {
+		points[i].x = points[i].x / norm_f;
+		points[i].y = points[i].y / norm_f;
+	}
+	// configuring matrix 'a'
+	a.at<float>(0, 0) = (float)n;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y;
+	}
+	a.at<float>(0, 1) = (float)temp;
+	a.at<float>(1, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y;
+	}
+	a.at<float>(0, 2) = (float)temp;
+	a.at<float>(1, 1) = (float)temp;
+	a.at<float>(2, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y;
+	}
+	a.at<float>(0, 3) = (float)temp;
+	a.at<float>(1, 2) = (float)temp;
+	a.at<float>(2, 1) = (float)temp;
+	a.at<float>(3, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y * points[i].y;
+	}
+	a.at<float>(1, 3) = (float)temp;
+	a.at<float>(2, 2) = (float)temp;
+	a.at<float>(3, 1) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y * points[i].y * points[i].y;
+	}
+	a.at<float>(2, 3) = (float)temp;
+	a.at<float>(3, 2) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y * points[i].y * points[i].y * points[i].y;
+	}
+	a.at<float>(3, 3) = (float)temp;
+
+	// configuring matrix 'b'
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].x;
+	}
+	b.at<float>(0, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].x * points[i].y;
+	}
+	b.at<float>(1, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].x;
+	}
+	b.at<float>(2, 0) = (float)temp;
+	temp = 0;
+	for (int i = 0; i < n; i++) {
+		temp += points[i].y * points[i].y * points[i].y * points[i].x;
+	}
+	b.at<float>(3, 0) = (float)temp;
+
+	// matrix operation
+	c = a.inv();
+	d = c*b;
+	//printf("\n>> %f %f %f ", cvmGet(d,0,0),cvmGet(d,1,0),cvmGet(d,2,0));
+	coeff[0] = d.at<float>(0, 0) * norm_f;
+	coeff[1] = d.at<float>(1, 0);
+	coeff[2] = d.at<float>(2, 0) / norm_f;
+	coeff[3] = d.at<float>(3, 0) / norm_f / norm_f;
+
+	//printf("%f %f %f\n", coeff[0], coeff[1], coeff[2]); 
+	//cvmMul(a, d, e);
+	e = a*d;
+	//err = abs(cvmGet(e,0,0) - cvmGet(b,0,0))+abs(cvmGet(e,1,0) - cvmGet(b,1,0))+abs(cvmGet(e,2,0) - cvmGet(b,2,0));
+	err = 0;
+
+	for (int i = 0; i < n; i++) {
+		points[i].x = (float)cvRound(points[i].x * norm_f);
+		points[i].y = (float)cvRound(points[i].y * norm_f);
+	}
+
+}
+int LaneDetection::dist_ftn3(int i, int j, int s_i, int s_j) {
+
+	// Graph Validity of (i to j)
+
+	// Location 1
+	if (marking_seed[i].end_p.y >= marking_seed[j].str_p.y) {
+		return 0;
+	}
+
+	//printf(" >> Node [%d] -> [%d]\n",s_i,s_j);
+
+	// Location 2
+	double diff1 = marking_seed[j].str_p.x - (tan(CV_PI / 2 - marking_seed[i].end_dir)*(marking_seed[j].str_p.y - marking_seed[i].end_p.y) + marking_seed[i].end_p.x);
+	double diff2 = marking_seed[i].end_p.x - (tan(CV_PI / 2 - marking_seed[j].str_dir)*(marking_seed[i].end_p.y - marking_seed[j].str_p.y) + marking_seed[j].str_p.x);
+	//printf("  >> location diff = \t%.3f\t%.3f\t  %.3f\n", abs(diff1), abs(diff2), abs(diff1)+abs(diff2));
+	if (fabs(diff1) + fabs(diff2) > 65) {
+		//printf("  >> location diff [%d] -> [%d] = %.3f\t%.3f\t  %.3f\n", s_i,s_j, abs(diff1), abs(diff2), abs(diff1)+abs(diff2));
+		return 0;
+	}
+
+	// Slope
+	double inter_dir = slope_ftn(marking_seed[i].end_p, marking_seed[j].str_p);
+	double diff3 = (marking_seed[i].end_dir - inter_dir) / CV_PI * 180;
+	double diff4 = (marking_seed[j].str_dir - inter_dir) / CV_PI * 180;
+	//printf("  >> slope diff = \t%.3f\t%.3f\t%.3f\t\t%.3f\t%.3f\t%.3f\n", abs(diff3), abs(diff4), abs(diff3)+abs(diff4), inter_dir/CV_PI*180, marking_seed[i].end_dir/CV_PI*180, marking_seed[j].str_dir/CV_PI*180);
+	if (fabs(diff3) + fabs(diff4) > 80) {
+		//printf("  >> slope diff [%d] -> [%d] = %.3f\t%.3f\t  %.3f\t\t%.3f\t%.3f\t%.3f\n", s_i,s_j, abs(diff3), abs(diff4), abs(diff3)+abs(diff4), inter_dir/CV_PI*180, marking_seed[i].end_dir/CV_PI*180, marking_seed[j].str_dir/CV_PI*180);
+		return 0;
+	}
+
+	//printf(" >> [%d] -> [%d] \n", s_i,s_j);
+	return 1;
+
+	// possible to be resued for the Unary term
+}
+void LaneDetection::node_grouping(cv::Mat& mat_in, int size, int type, int n, int label) {
+
+	if (type == 0) {
+		for (int ii = 0; ii < size; ii++) {
+			if (mat_in.at<int>(n, ii) == 1) {
+				mat_in.at<int>(n, ii) = label;
+				node_grouping(mat_in, size, 0, ii, label);
+				node_grouping(mat_in, size, 1, ii, label);
+			}
+		}
+	}
+
+	if (type == 1) {
+		for (int ii = 0; ii < size; ii++) {
+			if (mat_in.at<int>(ii, n) == 1) {
+				mat_in.at<int>(ii, n) = label;
+				node_grouping(mat_in, size, 0, ii, label);
+				node_grouping(mat_in, size, 1, ii, label);
+			}
+		}
+	}
+}
+
+float LaneDetection::unary_ftn(int i, int j) {
+
+	// Location diff
+	double diff1 = marking_seed[j].str_p.x - (tan(CV_PI / 2 - marking_seed[i].end_dir)*(marking_seed[j].str_p.y - marking_seed[i].end_p.y) + marking_seed[i].end_p.x);
+	double diff2 = marking_seed[i].end_p.x - (tan(CV_PI / 2 - marking_seed[j].str_dir)*(marking_seed[i].end_p.y - marking_seed[j].str_p.y) + marking_seed[j].str_p.x);
+
+	// Slope diff
+	double inter_dir = slope_ftn(marking_seed[i].end_p, marking_seed[j].str_p);
+	double diff3 = (marking_seed[i].end_dir - inter_dir) / CV_PI * 180;
+	double diff4 = (marking_seed[j].str_dir - inter_dir) / CV_PI * 180;
+
+	double x = fabs(diff1) + fabs(diff2);
+	double y = fabs(diff3) + fabs(diff4);
+	double unary = 0;
+	//printf(" %.3f %.3f %.3f\n", term1,term2, unary);
+
+	double a, b, c, d, e, f;
+	a = 0.000140047;
+	b = 0.001069285;
+	c = -0.000263005;
+	d = -0.283444141;
+	e = -0.255786389;
+	f = 24.86101278;
+
+	double fx = a*x*x + b*x*y + c*y*y + d*x + e*y + f;
+	unary = 1 / (1 + exp(-fx));
+	return (float)unary;
+}
+
+float LaneDetection::pairwise_ftn(std::vector<cv::Point2f>& pts) {
+
+	cv::Point2f dots;
+	std::vector<float> coeff(4);
+	float error = 0;
+	poly4(pts,pts.size(),coeff);
+	for(int ii=0;ii<pts.size();++ii){
+		dots.y = (int)pts[ii].y;
+		dots.x = (int)(coeff[0]+coeff[1]*dots.y+coeff[2]*dots.y*dots.y+coeff[3]*dots.y*dots.y*dots.y);
+		error = error + (float)((pts[ii].x-dots.x)*(pts[ii].x-dots.x));
+	}
+
+	double sig = 50;
+	double pairwise = exp(-(error/ pts.size())*(error/ pts.size())/sig/sig);
+
+	return (float)pairwise;
+
+}

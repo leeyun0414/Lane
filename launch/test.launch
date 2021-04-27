@@ -1,0 +1,11 @@
+
+<launch>
+    <param name="camera_num" type="int" value="2" />
+    <param name="camera_name_0" type="string" value="/lucid_cameras_x02/gige_60_f" />
+    <param name="camera_name_4" type="string" value="/lucid_cameras_x02/gige_35_f" />
+    <param name="camera_name_3" type="string" value="/lucid_cameras_x03/gige_90_fl" />
+    <param name="camera_name_2" type="string" value="/lucid_cameras_x03/gige_90_fr" />
+    <param name="camera_name_1" type="string" value="/lucid_cameras_x02/gige_60_b" />
+    <param name="debug" type="bool" value= "0"/>
+    <node name="laneitri_node" pkg="laneitri" type="laneitri_node" output="screen"/>
+</launch>
